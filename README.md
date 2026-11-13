@@ -17,14 +17,20 @@ Abra [localhost:3000](http://localhost:3000). Para usar a autenticação, defina
 
 1. Revise a [migration de perfis](supabase/migrations/20261112181905_player_profiles.sql) antes de aplicá-la ao projeto hospedado. Ela cria os perfis, as políticas de acesso, a consulta de disponibilidade e o gatilho de cadastro. Contas preexistentes recebem um nome provisório.
 2. Em **Authentication**, habilite o provedor **Email**, cadastro e confirmação de e-mail. Configure senha mínima de 8 caracteres. Em **URL Configuration**, defina **Site URL** como a origem do aplicativo que receberá os e-mails, por exemplo `http://localhost:3000` durante desenvolvimento.
-3. Nos modelos **Confirm signup** e **Reset password**, configure o destino dos links conforme abaixo. Use o fragmento após `#` para manter o token fora das requisições GET. O usuário confirma a ação no aplicativo antes de consumir o link.
+3. Os modelos padrão **Confirm signup** e **Reset password** podem usar `{{ .ConfirmationURL }}`. Abra o link no mesmo navegador e perfil que iniciou a solicitação. Na página de confirmação, clique em **Continuar** para concluir a autenticação. Se o projeto já usa modelos personalizados, os destinos abaixo continuam compatíveis.
 
-| Modelo         | Destino do link                                                           |
-| -------------- | ------------------------------------------------------------------------- |
-| Confirm signup | `{{ .SiteURL }}/auth/confirmar#token_hash={{ .TokenHash }}&type=email`    |
-| Reset password | `{{ .SiteURL }}/auth/confirmar#token_hash={{ .TokenHash }}&type=recovery` |
+| Modelo         | Destino do link                                               |
+| -------------- | ------------------------------------------------------------- |
+| Confirm signup | `{{ .RedirectTo }}#token_hash={{ .TokenHash }}&type=email`    |
+| Reset password | `{{ .RedirectTo }}#token_hash={{ .TokenHash }}&type=recovery` |
+
+Na Netlify, configure `POKER_QUEST_SITE_URL` para as funções com a origem HTTPS pública, sem caminho, e defina essa mesma origem como **Site URL** no Supabase de produção. Em **Redirect URLs**, inclua a URL pública exata terminada em `/auth/confirmar`. No Supabase de desenvolvimento, use a origem local e permita `http://localhost:3000/auth/confirmar`. Se usar outra porta, ajuste a variável local e a URL permitida. `RedirectTo` já inclui o caminho do callback.
 
 O SMTP padrão do Supabase hospedado só envia para endereços autorizados da equipe. Para testar com outros destinatários, configure um SMTP próprio que respeite o orçamento. [Documentação de SMTP](https://supabase.com/docs/guides/auth/auth-smtp).
+
+A recuperação também exige `POKER_QUEST_SUPABASE_SERVER_KEY`, com uma chave secreta do Supabase ou a chave legada `service_role`, disponível exclusivamente no servidor. A migration de consumo registra o ID da sessão antes da tentativa de troca de senha. Se a tentativa falhar, solicite outro link. A tabela guarda somente o ID da sessão e a data de consumo, sem limpeza automática.
+
+Para recuperação de senha, configure `POKER_QUEST_RECOVERY_SECRET` no servidor da Netlify e em `.env.local` no desenvolvimento. Use um valor aleatório de pelo menos 32 caracteres, por exemplo gerado com `openssl rand -hex 32`. O valor assina a autorização de recuperação e deve ficar fora do Git.
 
 ### Verificar o fluxo
 

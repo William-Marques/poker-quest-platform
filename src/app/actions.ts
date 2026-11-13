@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { copy, type FormState } from "@/lib/auth/pt-br";
+import { authEmailRedirect } from "@/lib/auth/redirect";
 import { recoverySession, setRecoverySession } from "@/lib/auth/recovery";
+import { consumeRecovery } from "@/lib/auth/consume-recovery";
+import { validRecoverySecret } from "@/lib/auth/recovery-proof";
 import { emailFrom, passwordError, usernameFrom } from "@/lib/auth/validation";
 import { supabaseServer } from "@/lib/supabase/server";
 
@@ -16,6 +19,8 @@ export async function signup(_: FormState, form: FormData): Promise<FormState> {
   if (typeof password !== "string") return { error: "Informe a senha." };
   const invalid = passwordError(password, form.get("confirmation"));
   if (invalid) return { error: invalid };
+  const emailRedirectTo = authEmailRedirect();
+  if (!emailRedirectTo) return { error: copy.unavailable };
   const supabase = await supabaseServer();
   if (!supabase) return { error: copy.unavailable };
 
@@ -28,7 +33,7 @@ export async function signup(_: FormState, form: FormData): Promise<FormState> {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { username } },
+    options: { data: { username }, emailRedirectTo },
   });
   if (error) {
     if (error.code === "weak_password")
@@ -97,16 +102,69 @@ export async function requestRecovery(
 ): Promise<FormState> {
   const email = emailFrom(form.get("email"));
   if (!email) return { error: copy.email };
+  const redirectTo = authEmailRedirect();
+  if (
+    !redirectTo ||
+    !validRecoverySecret(process.env.POKER_QUEST_RECOVERY_SECRET ?? "")
+  ) {
+    return { error: copy.unavailable };
+  }
   const supabase = await supabaseServer();
   if (!supabase) return { error: copy.unavailable };
-  await supabase.auth.resetPasswordForEmail(email);
+  await supabase.auth.resetPasswordForEmail(email, { redirectTo });
   return { message: copy.recovery };
+}
+
+async function finishEmailAuth(
+  supabase: NonNullable<Awaited<ReturnType<typeof supabaseServer>>>,
+  recovery: boolean,
+): Promise<FormState> {
+  await setRecoverySession(null);
+  if (recovery) {
+    const { data } = await supabase.auth.getClaims();
+    const session = data?.claims.session_id;
+    if (typeof session !== "string" || !(await setRecoverySession(session))) {
+      await supabase.auth.signOut({ scope: "local" });
+      return { error: copy.unavailable };
+    }
+    redirect("/nova-senha");
+  }
+  redirect("/painel");
 }
 
 export async function confirmEmail(
   _: FormState,
   form: FormData,
 ): Promise<FormState> {
+  const code = form.get("code");
+  if (code !== null) {
+    if (typeof code !== "string" || !/^[\w-]{1,256}$/.test(code)) {
+      return { error: copy.invalidLink };
+    }
+    const supabase = await supabaseServer();
+    if (!supabase) return { error: copy.unavailable };
+    const flowId = form.get("sb_flow_id");
+    if (
+      flowId !== null &&
+      (typeof flowId !== "string" || !/^[A-Za-z0-9_-]{8,64}$/.test(flowId))
+    ) {
+      return { error: copy.invalidLink };
+    }
+    const { data, error } = await supabase.auth.exchangeCodeForSession(
+      code,
+      flowId ? { flowId } : undefined,
+    );
+    if (error || !data.session) {
+      return {
+        error:
+          "O link expirou, já foi usado ou foi aberto em outro navegador. Use o mesmo navegador ou solicite um novo link.",
+      };
+    }
+    return finishEmailAuth(
+      supabase,
+      "redirectType" in data && data.redirectType === "recovery",
+    );
+  }
   const token = form.get("token_hash");
   const type = form.get("type");
   if (
@@ -123,15 +181,7 @@ export async function confirmEmail(
     type,
   });
   if (error || !data.session) return { error: copy.invalidLink };
-  if (type === "recovery") {
-    const { data: verified } = await supabase.auth.getClaims();
-    const session = verified?.claims.session_id;
-    if (typeof session !== "string") return { error: copy.invalidLink };
-    await setRecoverySession(session);
-    redirect("/nova-senha");
-  }
-  await setRecoverySession(null);
-  redirect("/painel");
+  return finishEmailAuth(supabase, type === "recovery");
 }
 
 export async function updatePassword(
@@ -150,17 +200,29 @@ export async function updatePassword(
     return { error: copy.invalidLink };
   }
 
+  const consumed = await consumeRecovery(session);
+  await setRecoverySession(null);
+  if (!consumed) {
+    return {
+      error: "Não foi possível usar este link. Solicite uma nova recuperação.",
+    };
+  }
   const { error } = await supabase.auth.updateUser({ password });
   if (error?.code === "same_password")
-    return { error: "Escolha uma senha diferente da atual." };
+    return {
+      error:
+        "Escolha uma senha diferente da atual. Solicite um novo link para tentar novamente.",
+    };
   if (error?.code === "weak_password")
-    return { error: "Escolha uma senha mais forte." };
+    return {
+      error:
+        "Escolha uma senha mais forte. Solicite um novo link para tentar novamente.",
+    };
   if (error)
     return {
       error:
         "Não foi possível alterar a senha. Solicite um novo link e tente novamente.",
     };
-  await setRecoverySession(null);
   const signout = await supabase.auth.signOut({ scope: "global" });
   if (signout.error)
     return {
