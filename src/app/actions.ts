@@ -111,7 +111,11 @@ export async function requestRecovery(
   }
   const supabase = await supabaseServer();
   if (!supabase) return { error: copy.unavailable };
-  await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo,
+  });
+  if (error)
+    console.warn("Falha do Supabase ao solicitar recuperação de senha.");
   return { message: copy.recovery };
 }
 

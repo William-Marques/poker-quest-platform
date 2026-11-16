@@ -78,7 +78,7 @@ const hooks = registerHooks({
   },
 });
 
-const { confirmEmail, updatePassword } =
+const { confirmEmail, requestRecovery, updatePassword } =
   await import("../src/app/actions.ts").finally(() => {
     hooks.deregister();
     delete globalThis[bridge];
@@ -89,6 +89,47 @@ function form(fields) {
   for (const [key, value] of Object.entries(fields)) data.set(key, value);
   return data;
 }
+
+test("solicitação de recuperação mantém a resposta genérica diante de erros do provedor", async (t) => {
+  for (const [name, value] of Object.entries({
+    POKER_QUEST_RECOVERY_SECRET: secret,
+    POKER_QUEST_SITE_URL: "https://qa.example.test",
+  })) {
+    const previous = process.env[name];
+    process.env[name] = value;
+    t.after(() => {
+      if (previous === undefined) delete process.env[name];
+      else process.env[name] = previous;
+    });
+  }
+
+  const warn = t.mock.method(console, "warn", () => {});
+  const email = "qa@example.test";
+  for (const error of [
+    null,
+    { code: "user_not_found", message: email },
+    { code: "unexpected_failure", message: "SMTP error" },
+  ]) {
+    const warningsBefore = warn.mock.callCount();
+    auth = {
+      resetPasswordForEmail: t.mock.fn(async () => ({ error })),
+    };
+    assert.deepEqual(await requestRecovery({}, form({ email })), {
+      message: copy.recovery,
+    });
+    assert.deepEqual(auth.resetPasswordForEmail.mock.calls[0].arguments, [
+      email,
+      { redirectTo: "https://qa.example.test/auth/confirmar" },
+    ]);
+    assert.equal(warn.mock.callCount() - warningsBefore, error ? 1 : 0);
+  }
+  assert.deepEqual(
+    warn.mock.calls.map(({ arguments: args }) => args),
+    Array.from({ length: 2 }, () => [
+      "Falha do Supabase ao solicitar recuperação de senha.",
+    ]),
+  );
+});
 
 function setup(t, { fields, result, claims = { session_id: sessionId } }) {
   t.mock.method(Date, "now", () => now);
