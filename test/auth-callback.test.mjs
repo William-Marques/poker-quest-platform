@@ -280,9 +280,14 @@ for (const [name, fields, result] of scenarios.filter(
 }
 
 
-test("callback PKCE registra somente metadados quando o código não pode ser trocado", async (t) => {
-  const warn = t.mock.method(console, "warn", () => {});
-  for (const code of ["flow_state_not_found", "flow_state_expired", "bad_code_verifier"]) {
+
+for (const code of [
+  "flow_state_not_found",
+  "flow_state_expired",
+  "bad_code_verifier",
+]) {
+  test(`callback PKCE registra somente metadados para ${code}`, async (t) => {
+    const warn = t.mock.method(console, "warn", () => {});
     const { confirm } = setup(t, {
       fields: { code: "synthetic-code" },
       result: {
@@ -291,17 +296,20 @@ test("callback PKCE registra somente metadados quando o código não pode ser tr
       },
     });
     assert.deepEqual(await confirm(), { error: copy.callback });
-    const call = warn.mock.calls.at(-1);
-    assert.equal(call.arguments[0], "Falha ao trocar código de autenticação.");
-    assert.deepEqual(call.arguments[1], {
-      code,
-      status: 400,
-      flowIdProvided: false,
-    });
-    assert.equal(JSON.stringify(call.arguments).includes("synthetic-code"), false);
-    assert.equal(JSON.stringify(call.arguments).includes("synthetic sensitive detail"), false);
-  }
-});
+    assert.deepEqual(warn.mock.calls[0].arguments, [
+      "Falha ao trocar código de autenticação.",
+      { code, status: 400, flowIdProvided: false },
+    ]);
+    assert.equal(
+      JSON.stringify(warn.mock.calls).includes("synthetic-code"),
+      false,
+    );
+    assert.equal(
+      JSON.stringify(warn.mock.calls).includes("synthetic sensitive detail"),
+      false,
+    );
+  });
+}
 
 test("callback PKCE informa sessão ausente sem expor dados do código", async (t) => {
   const warn = t.mock.method(console, "warn", () => {});
