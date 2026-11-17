@@ -14,11 +14,32 @@ function subscribe(listener: () => void) {
 export default function ConfirmPage() {
   const fragment = useSyncExternalStore(
     subscribe,
-    () => window.location.hash.slice(1),
+    () => window.location.search + "\n" + window.location.hash.slice(1),
     () => null,
   );
   if (fragment === null) return <h1>Abrindo link…</h1>;
-  const params = new URLSearchParams(fragment);
+  const [search, hash] = fragment.split("\n", 2);
+  const query = new URLSearchParams(search);
+  const code = query.get("code");
+  const flowId = query.get("sb_flow_id");
+  if (code) {
+    return (
+      <>
+        <h1>Conclua a autenticação</h1>
+        <AccountForm action={confirmEmail} label="Continuar">
+          <input name="code" type="hidden" value={code} />
+          {flowId !== null && (
+            <input name="sb_flow_id" type="hidden" value={flowId} />
+          )}
+        </AccountForm>
+        <p>
+          <Link href="/entrar">Entrar</Link> ·{" "}
+          <Link href="/recuperar-senha">Solicitar outro link</Link>
+        </p>
+      </>
+    );
+  }
+  const params = new URLSearchParams(hash);
   const token = params.get("token_hash");
   const type = params.get("type");
   if (
