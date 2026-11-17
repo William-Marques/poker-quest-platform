@@ -159,10 +159,13 @@ export async function confirmEmail(
       flowId ? { flowId } : undefined,
     );
     if (error || !data.session) {
-      return {
-        error:
-          "O link expirou, já foi usado ou foi aberto em outro navegador. Use o mesmo navegador ou solicite um novo link.",
-      };
+      // Registra apenas metadados do erro; nunca registre o código ou cookies.
+      console.warn("Falha ao trocar código de autenticação.", {
+        code: error?.code ?? "missing_session",
+        status: error?.status ?? null,
+        flowIdProvided: Boolean(flowId),
+      });
+      return { error: copy.callback };
     }
     return finishEmailAuth(
       supabase,
