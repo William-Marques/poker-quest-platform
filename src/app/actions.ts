@@ -159,10 +159,29 @@ export async function confirmEmail(
       flowId ? { flowId } : undefined,
     );
     if (error || !data.session) {
-      return {
-        error:
-          "O link expirou, já foi usado ou foi aberto em outro navegador. Use o mesmo navegador ou solicite um novo link.",
-      };
+      const providerCode = error?.code;
+      let logCode = "missing_session";
+      if (error) {
+        switch (providerCode) {
+          case "flow_state_not_found":
+          case "flow_state_expired":
+          case "bad_code_verifier":
+            logCode = providerCode;
+            break;
+          default:
+            logCode =
+              error.name === "AuthPKCECodeVerifierMissingError"
+                ? "missing_verifier"
+                : "unknown_pkce_error";
+        }
+      }
+
+      console.warn("Falha ao trocar código de autenticação.", {
+        code: logCode,
+        status: typeof error?.status === "number" ? error.status : null,
+        flowIdProvided: Boolean(flowId),
+      });
+      return { error: copy.callback };
     }
     return finishEmailAuth(
       supabase,
