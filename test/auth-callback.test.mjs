@@ -131,7 +131,10 @@ test("solicitação de recuperação mantém a resposta genérica diante de erro
   );
 });
 
-function setup(t, { fields, result, claims = { session_id: sessionId } }) {
+function setup(
+  t,
+  { fields, result, claims = { session_id: sessionId }, expectExchange = true },
+) {
   t.mock.method(Date, "now", () => now);
   const previous = process.env.POKER_QUEST_RECOVERY_SECRET;
   process.env.POKER_QUEST_RECOVERY_SECRET = secret;
@@ -175,9 +178,13 @@ function setup(t, { fields, result, claims = { session_id: sessionId } }) {
       const calls = (method) =>
         auth[method].mock.calls.map(({ arguments: args }) => args);
       if ("code" in fields) {
-        assert.deepEqual(calls("exchangeCodeForSession"), [
-          [fields.code, undefined],
-        ]);
+        const options = fields.sb_flow_id
+          ? { flowId: fields.sb_flow_id }
+          : undefined;
+        assert.deepEqual(
+          calls("exchangeCodeForSession"),
+          expectExchange ? [[fields.code, options]] : [],
+        );
         assert.deepEqual(calls("verifyOtp"), []);
       } else {
         assert.deepEqual(calls("verifyOtp"), [[fields]]);
@@ -298,10 +305,15 @@ for (const code of [
       },
     });
     assert.deepEqual(await confirm(), { error: copy.callback });
-    assert.deepEqual(warn.mock.calls[0].arguments, [
-      "Falha ao trocar código de autenticação.",
-      { code, status: 400, flowIdProvided: false },
-    ]);
+    assert.deepEqual(
+      warn.mock.calls.map(({ arguments: args }) => args),
+      [
+        [
+          "Falha ao trocar código de autenticação.",
+          { code, status: 400, flowIdProvided: false },
+        ],
+      ],
+    );
     assert.equal(
       JSON.stringify(warn.mock.calls).includes("synthetic-code"),
       false,
@@ -325,3 +337,45 @@ test("callback PKCE informa sessão ausente sem expor dados do código", async (
     { code: "missing_session", status: null, flowIdProvided: false },
   ]);
 });
+
+test("callback PKCE rejeita código malformado antes de chamar o SDK", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const { confirm } = setup(t, {
+    fields: { code: "invalid code" },
+    expectExchange: false,
+  });
+  assert.deepEqual(await confirm(), { error: copy.invalidLink });
+  assert.equal(warn.mock.callCount(), 0);
+});
+
+for (const [name, fields, error, expected] of [
+  [
+    "verificador ausente sem código do SDK",
+    { code: "synthetic-code" },
+    { name: "AuthPKCECodeVerifierMissingError", status: 400 },
+    { code: "missing_verifier", status: 400, flowIdProvided: false },
+  ],
+  [
+    "código inesperado do provedor com flowId",
+    { code: "synthetic-code", sb_flow_id: "synthetic-flow-id" },
+    { code: "synthetic-sensitive-error", status: 500 },
+    { code: "unknown_pkce_error", status: 500, flowIdProvided: true },
+  ],
+]) {
+  test(`callback PKCE registra somente os campos permitidos: ${name}`, async (t) => {
+    const warn = t.mock.method(console, "warn", () => {});
+    const { confirm } = setup(t, {
+      fields,
+      result: {
+        data: { session: null },
+        error: { ...error, message: "synthetic sensitive detail" },
+      },
+    });
+
+    assert.deepEqual(await confirm(), { error: copy.callback });
+    assert.deepEqual(
+      warn.mock.calls.map(({ arguments: args }) => args),
+      [["Falha ao trocar código de autenticação.", expected]],
+    );
+  });
+}

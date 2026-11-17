@@ -159,10 +159,26 @@ export async function confirmEmail(
       flowId ? { flowId } : undefined,
     );
     if (error || !data.session) {
-      // Registra apenas metadados do erro; nunca registre o código ou cookies.
+      const providerCode = error?.code;
+      let logCode = "missing_session";
+      if (error) {
+        switch (providerCode) {
+          case "flow_state_not_found":
+          case "flow_state_expired":
+          case "bad_code_verifier":
+            logCode = providerCode;
+            break;
+          default:
+            logCode =
+              error.name === "AuthPKCECodeVerifierMissingError"
+                ? "missing_verifier"
+                : "unknown_pkce_error";
+        }
+      }
+
       console.warn("Falha ao trocar código de autenticação.", {
-        code: error?.code ?? "missing_session",
-        status: error?.status ?? null,
+        code: logCode,
+        status: typeof error?.status === "number" ? error.status : null,
         flowIdProvided: Boolean(flowId),
       });
       return { error: copy.callback };

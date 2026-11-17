@@ -7,7 +7,7 @@ export const copy = {
     "Se houver uma conta com esse e-mail, você receberá um link para redefinir a senha.",
   invalidLink: "Este link é inválido ou expirou. Solicite um novo e-mail.",
   callback:
-    "Não foi possível iniciar sua sessão com este link. Se você estava confirmando o cadastro, tente entrar: seu e-mail pode já estar confirmado. Se estava redefinindo a senha, solicite um novo link.",
+    "Não foi possível iniciar sua sessão com este link. Abra-o no mesmo navegador e perfil usados para iniciar o processo. Se você estava confirmando o cadastro, tente entrar: seu e-mail pode já estar confirmado. Se estava redefinindo a senha, solicite um novo link.",
 };
 
 export type FormState = { error?: string; message?: string };
