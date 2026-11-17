@@ -279,8 +279,6 @@ for (const [name, fields, result] of scenarios.filter(
   });
 }
 
-
-
 for (const code of [
   "flow_state_not_found",
   "flow_state_expired",
@@ -292,7 +290,11 @@ for (const code of [
       fields: { code: "synthetic-code" },
       result: {
         data: { session: null },
-        error: { code, status: 400, message: "synthetic sensitive detail" },
+        error: {
+          code,
+          status: 400,
+          message: "synthetic sensitive detail",
+        },
       },
     });
     assert.deepEqual(await confirm(), { error: copy.callback });
